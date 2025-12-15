@@ -1,63 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Love Letter 💌</title>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Love Letter 💌</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
   <div id="hearts-container"></div>
 
   <!-- Creator Mode -->
   <header class="intro" id="creatorHeader">
-    <h1>Create Your Love Letter</h1>
-    <p>A heartfelt message your partner will cherish forever 💕</p>
-    <button class="primary-btn" onclick="scrollToSection('creator')">Start Now</button>
+    <h1>Create a Special Message</h1>
+    <p>Romantic, Apology, Friendship, Family & more ❤️</p>
+    <button class="primary-btn" onclick="document.getElementById('creator').scrollIntoView({behavior:'smooth'})">Start Now</button>
   </header>
 
   <section id="creator" class="section">
     <div class="card">
-      <input type="text" id="fromName" placeholder="Your Name (e.g. Alex)" />
-      <input type="text" id="toName" placeholder="Their Name (e.g. Joy)" />
-      <input type="date" id="specialDate" />
-      <textarea id="loveText" rows="8" placeholder="Write your love message here... Let your heart speak ❤️"></textarea>
+      <input type="text" id="fromName" placeholder="Your Name">
+      <input type="text" id="toName" placeholder="Their Name">
+      <input type="date" id="specialDate">
 
-      <h3>Choose Background Song</h3>
-      <select id="predefinedSong">
-        <option value="">No Music</option>
-        <option value="pRpeEdMmmQ0">Perfect - Ed Sheeran</option>
-        <option value="3AtDnEC4zak">All of Me - John Legend</option>
-        <option value="fJ9rUzIMcZQ">A Thousand Years - Christina Perri</option>
-        <option value="lp-EO5I60KA">Can't Help Falling in Love</option>
-        <option value="kJQP7kiw5Fk">Lover - Taylor Swift</option>
+      <h3>Message Type</h3>
+      <select id="templateSelect" onchange="applyTemplate()">
+        <option value="">Choose a template...</option>
+        <option value="romantic">Romantic Love</option>
+        <option value="apology">Apology</option>
+        <option value="sorry">I'm Sorry</option>
+        <option value="friendship">Friendship</option>
+        <option value="longlost">Long Lost Friend</option>
+        <option value="family">Family Love</option>
+        <option value="birthday">Birthday Wish</option>
       </select>
+
+      <textarea id="loveText" rows="10" placeholder="Your message will appear here... Edit as you like ❤️"></textarea>
     </div>
 
     <div class="card">
-      <h3>Virtual Gifts 💝</h3>
+      <h3>Add Photos (Max 3)</h3>
+      <input type="file" id="photoInput" multiple accept="image/*" onchange="handlePhotos(event)">
+      <div class="memory-grid" id="photoPreview"></div>
+      <p id="photoWarning" style="color:#e63946;display:none;">Warning: More than 3 photos may break sharing!</p>
+    </div>
+
+    <div class="card">
+      <h3>Choose a Song (Listen Below)</h3>
+      <input type="text" id="youtubeLink" placeholder="Paste YouTube link here (e.g. https://youtube.com/watch?v=...)">
+      <button class="primary-btn" onclick="previewSong()" style="margin:1rem 0;">Preview Song</button>
+      <div class="youtube-frame" id="songPreview"></div>
+    </div>
+
+    <div class="card">
+      <h3>Virtual Gifts</h3>
       <div class="gifts">
         <div class="gift" onclick="toggleGift(this,'🌹')">🌹</div>
         <div class="gift" onclick="toggleGift(this,'🍫')">🍫</div>
         <div class="gift" onclick="toggleGift(this,'🧸')">🧸</div>
         <div class="gift" onclick="toggleGift(this,'💍')">💍</div>
-        <div class="gift" onclick="toggleGift(this,'🌙')">🌙</div>
-        <div class="gift" onclick="toggleGift(this,'✈️')">✈️</div>
+        <div class="gift" onclick="toggleGift(this,'🎂')">🎂</div>
+        <div class="gift" onclick="toggleGift(this,'🌟')">🌟</div>
+        <div class="gift" onclick="toggleGift(this,'❤️')">❤️</div>
+        <div class="gift" onclick="toggleGift(this,'✨')">✨</div>
       </div>
     </div>
 
     <div class="card">
-      <h3>Add Photos (Max 3 recommended)</h3>
-      <p style="font-size:0.9rem;color:#666;margin-bottom:1rem;">Large or many photos may break sharing. Keep them small!</p>
-      <input type="file" id="memoryPhotos" multiple accept="image/*" onchange="loadMemories(event)" />
-      <div class="memory-grid" id="memoryGrid"></div>
-    </div>
-
-    <div class="card">
       <button class="primary-btn" onclick="generateLink()">Generate Magic Link</button>
-      <input type="text" id="shareLink" readonly placeholder="Your link will appear here..." style="margin-top:1rem;" />
-      <p style="font-size:0.9rem;margin-top:1rem;color:#e63946;">Copy and send this link to your love ❤️</p>
+      <input type="text" id="shareLink" readonly placeholder="Link will appear here..." style="margin-top:1rem;">
+      
+      <div style="margin-top:1.5rem;text-align:center;">
+        <button class="primary-btn" onclick="shareWhatsApp()">Share via WhatsApp</button>
+        <button class="primary-btn" onclick="copyLink()">Copy Link</button>
+      </div>
     </div>
   </section>
 
@@ -66,7 +83,7 @@
     <div class="envelope" onclick="openEnvelope()">
       <div class="back"></div>
       <div class="flap"></div>
-      <div class="label">Tap to Open 💕</div>
+      <div class="label">Tap to Open 💌</div>
     </div>
   </header>
 
@@ -74,19 +91,20 @@
     <h2 id="dear" style="text-align:center;"></h2>
     <div class="card progressive" id="progressive"></div>
 
-    <div class="card" id="giftsSection" style="display:none;">
-      <h3 style="text-align:center;">Gifts for You 💌</h3>
+    <div class="card memory-grid" id="viewerPhotos"></div>
+
+    <div class="card" id="giftsCard" style="display:none;">
+      <h3 style="text-align:center;">Special Gifts for You 💝</h3>
       <div class="gifts" id="viewerGifts"></div>
     </div>
-
-    <div class="card memory-grid" id="viewerMemories"></div>
 
     <div class="card youtube-frame" id="youtubeFrame"></div>
 
     <div class="card" id="countdown" style="text-align:center;font-size:1.3rem;"></div>
 
     <div style="text-align:center;margin-top:2rem;">
-      <button class="primary-btn" onclick="navigator.clipboard.writeText(location.href); alert('Link copied ❤️')">Copy Link</button>
+      <button class="primary-btn" onclick="shareWhatsApp()">Share via WhatsApp</button>
+      <button class="primary-btn" onclick="copyLink()">Copy Link</button>
     </div>
   </section>
 
