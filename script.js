@@ -1,219 +1,371 @@
-const params = new URLSearchParams(location.search);
-const isViewer = params.has('d');
-const selectedGifts = [];
-let photoDataURLs = [];
+// script.js
+// Frontend-only message encoding + Cloudinary photo upload + short link creation + viewer renderer.
+// - Fetches optional /config.json for Cloudinary settings (cloud_name & unsigned_upload_preset).
+// - If config present, uploads up to 3 photos to Cloudinary and includes the secure URLs in the shared payload.
+// - Encodes payload into the URL fragment (#data=...) so recipients can view without a backend.
+// - Attempts to shorten the resulting URL using is.gd and falls back to the full URL on failure.
 
-const templates = {
-  romantic: `My dearest love,
-
-Every moment with you feels like a dream I never want to wake from. Your smile lights up my world, and your touch sets my heart on fire. I fall in love with you more every single day.
-
-Forever yours ❤️`,
-
-  apology: `I'm truly sorry...
-
-I know I hurt you, and that pain weighs heavily on my heart. My actions/words were wrong, and I take full responsibility. Please forgive me — I promise to do better and make things right.
-
-With all my love and regret,`,
-
-  sorry: `I'm so sorry...
-
-I never meant to cause you pain. Seeing you hurt because of me breaks my heart. Please know that I care deeply and will do anything to make this right.
-
-Forgive me? ❤️`,
-
-  friendship: `To my amazing friend,
-
-You've been there through thick and thin, laughter and tears. Thank you for your unconditional support and endless joy. Our friendship means the world to me.
-
-Love you always!`,
-
-  longlost: `Hey old friend...
-
-It's been way too long! I've been thinking about all our memories — the laughs, adventures, and late-night talks. Life took us different ways, but you’ve never left my heart.
-
-Let's catch up soon? ❤️`,
-
-  family: `To my dear family member,
-
-You've always been my rock, my guide, and my biggest supporter. Thank you for your unconditional love and wisdom. I'm so grateful to have you in my life.
-
-With all my love ❤️`,
-
-  birthday: `Happy Birthday! 🎉
-
-Today is all about YOU! Wishing you a day filled with love, joy, and everything that makes you smile. May this year bring you endless happiness and dreams come true.
-
-Love you so much ❤️`
-};
-
-// Mode switch
-document.getElementById('creatorHeader').style.display = isViewer ? 'none' : 'flex';
-document.getElementById('creator').style.display = isViewer ? 'none' : 'block';
-document.getElementById('viewerHeader').classList.toggle('hidden', !isViewer);
-document.getElementById('viewer').classList.toggle('hidden', !isViewer);
-
-startFloatingHearts();
-if (isViewer) loadViewer();
-
-function applyTemplate() {
-  const select = document.getElementById('templateSelect');
-  const text = templates[select.value];
-  if (text) document.getElementById('loveText').value = text;
-}
-
-function handlePhotos(event) {
-  const files = event.target.files;
-  const preview = document.getElementById('photoPreview');
-  preview.innerHTML = '';
-  photoDataURLs = [];
-
-  if (files.length > 3) {
-    document.getElementById('photoWarning').style.display = 'block';
-  } else {
-    document.getElementById('photoWarning').style.display = 'none';
+(function () {
+  // Helpers: UTF-safe base64 url encoding/decoding
+  function base64Encode(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  function base64Decode(b64) {
+    return decodeURIComponent(escape(atob(b64)));
   }
 
-  Array.from(files).slice(0, 3).forEach(file => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      photoDataURLs.push(e.target.result);
-      const img = document.createElement('img');
-      img.src = e.target.result;
-      preview.appendChild(img);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function previewSong() {
-  const link = document.getElementById('youtubeLink').value.trim();
-  const match = link.match(/(?:v=|be\/)([^&?]+)/);
-  if (match) {
-    const id = match[1];
-    document.getElementById('songPreview').innerHTML = 
-      `<iframe src="https://www.youtube.com/embed/${id}" allow="autoplay" allowfullscreen></iframe>`;
-  } else {
-    alert('Please enter a valid YouTube link');
+  function toBase64Url(json) {
+    return base64Encode(JSON.stringify(json)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
-}
 
-function toggleGift(el, emoji) {
-  el.classList.toggle('selected');
-  const i = selectedGifts.indexOf(emoji);
-  if (i > -1) selectedGifts.splice(i, 1);
-  else selectedGifts.push(emoji);
-}
+  function fromBase64Url(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const json = base64Decode(s);
+    return JSON.parse(json);
+  }
 
-function generateLink() {
-  const ytLink = document.getElementById('youtubeLink').value.trim();
-  const ytMatch = ytLink.match(/(?:v=|be\/)([^&?]+)/);
-  const yt = ytMatch ? ytMatch[1] : '';
+  // Attempt to load Cloudinary config from /config.json (optional)
+  let CLOUDINARY = null; // { cloud_name, unsigned_upload_preset }
+  (async function loadConfig() {
+    try {
+      const res = await fetch('/config.json', { cache: 'no-store' });
+      if (res.ok) {
+        CLOUDINARY = await res.json();
+        if (!CLOUDINARY.cloud_name || !CLOUDINARY.unsigned_upload_preset) {
+          console.warn('config.json is missing required fields (cloud_name, unsigned_upload_preset).');
+          CLOUDINARY = null;
+        }
+      }
+    } catch (err) {
+      // no config; proceed without Cloudinary
+      CLOUDINARY = null;
+    }
+  })();
 
-  const data = {
-    from: document.getElementById('fromName').value || 'Someone',
-    to: document.getElementById('toName').value || 'My Dear',
-    msg: document.getElementById('loveText').value,
-    date: document.getElementById('specialDate').value,
-    gifts: selectedGifts,
-    yt: yt,
-    photos: photoDataURLs
+  // DOM refs
+  const fromName = document.getElementById('fromName');
+  const toName = document.getElementById('toName');
+  const specialDate = document.getElementById('specialDate');
+  const templateSelect = document.getElementById('templateSelect');
+  const loveText = document.getElementById('loveText');
+  const photoInput = document.getElementById('photoInput');
+  const photoWarning = document.getElementById('photoWarning');
+  const youtubeLinkInput = document.getElementById('youtubeLink');
+  const shareLinkInput = document.getElementById('shareLink');
+  const viewerHeader = document.getElementById('viewerHeader');
+  const viewerSection = document.getElementById('viewer');
+  const creatorSection = document.getElementById('creator');
+  const dearEl = document.getElementById('dear');
+  const viewerGifts = document.getElementById('viewerGifts');
+  const youtubeFrame = document.getElementById('youtubeFrame');
+  const viewerPhotos = document.getElementById('viewerPhotos');
+  const giftsCard = document.getElementById('giftsCard');
+  const progressive = document.getElementById('progressive');
+  const photoPreview = document.getElementById('photoPreview');
+
+  // local state
+  let selectedGifts = new Set();
+  let uploadedPhotoUrls = []; // cloudinary URLs after upload
+
+  window.toggleGift = function (el, emoji) {
+    if (!selectedGifts) selectedGifts = new Set();
+    if (selectedGifts.has(emoji)) {
+      selectedGifts.delete(emoji);
+      el.classList.remove('selected');
+    } else {
+      selectedGifts.add(emoji);
+      el.classList.add('selected');
+    }
   };
 
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-  const link = location.href.split('?')[0] + '?d=' + encoded;
-  document.getElementById('shareLink').value = link;
-}
+  // Utility: resize/compress image via canvas to keep uploads small
+  function compressImage(file, maxDimension = 1200) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const fr = new FileReader();
+      fr.onload = () => {
+        img.src = fr.result;
+      };
+      fr.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        const scale = Math.min(1, maxDimension / Math.max(width, height));
+        if (scale < 1) {
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => {
+          if (blob) resolve(new File([blob], file.name, { type: blob.type }));
+          else reject(new Error('Canvas toBlob failed'));
+        }, 'image/jpeg', 0.85);
+      };
+      fr.readAsDataURL(file);
+    });
+  }
 
-function openEnvelope() {
-  document.querySelector('.envelope').classList.add('open');
-  setTimeout(() => {
-    document.getElementById('viewer').classList.remove('hidden');
-    document.getElementById('viewerHeader').style.display = 'none';
-    window.scrollTo(0,0);
-  }, 1400);
-}
+  // Upload a single file to Cloudinary (unsigned preset). Returns secure_url.
+  async function uploadToCloudinary(file) {
+    if (!CLOUDINARY) throw new Error('Cloudinary not configured');
+    const url = 'https://api.cloudinary.com/v1_1/' + CLOUDINARY.cloud_name + '/upload';
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', CLOUDINARY.unsigned_upload_preset);
+    // Optional: folder or context can be added here
 
-function loadViewer() {
-  const raw = params.get('d');
-  const decoded = decodeURIComponent(escape(atob(raw)));
-  const data = JSON.parse(decoded);
+    // Use fetch
+    const res = await fetch(url, { method: 'POST', body: fd });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error('Upload failed: ' + text);
+    }
+    const json = await res.json();
+    return json.secure_url || json.url;
+  }
 
-  document.getElementById('dear').textContent = `Dear ${data.to},`;
+  // Photo handling: upload up to 3 photos (compress first)
+  window.handlePhotos = async function (ev) {
+    const files = ev.target.files;
+    uploadedPhotoUrls = [];
+    if (files.length > 3) {
+      photoWarning.style.display = 'block';
+    } else {
+      photoWarning.style.display = 'none';
+    }
 
-  const lines = data.msg.split('\n').filter(l => l.trim());
-  const prog = document.getElementById('progressive');
-  lines.forEach((line, i) => {
-    const span = document.createElement('span');
-    span.textContent = line || ' ';
-    span.style.animationDelay = `${i * 1.6}s`;
-    prog.appendChild(span);
+    if (!photoPreview) return;
+    photoPreview.innerHTML = '';
+
+    const list = Array.from(files).slice(0, 3);
+
+    // If Cloudinary config present, upload files; else just show previews (no upload)
+    if (CLOUDINARY) {
+      // Show uploading indicator
+      const uploadingNote = document.createElement('div');
+      uploadingNote.textContent = 'Uploading photos...';
+      photoPreview.appendChild(uploadingNote);
+
+      for (const file of list) {
+        try {
+          // compress image
+          const compressed = await compressImage(file, 1200);
+          const url = await uploadToCloudinary(compressed);
+          uploadedPhotoUrls.push(url);
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = 'memory';
+          photoPreview.appendChild(img);
+        } catch (err) {
+          console.error('Photo upload failed', err);
+          alert('A photo failed to upload. It will be skipped.');
+        }
+      }
+      // remove uploading note
+      if (uploadingNote.parentNode) uploadingNote.parentNode.removeChild(uploadingNote);
+    } else {
+      // just preview locally (no upload)
+      list.forEach(file => {
+        const fr = new FileReader();
+        fr.onload = () => {
+          const img = document.createElement('img');
+          img.src = fr.result;
+          img.alt = 'memory';
+          photoPreview.appendChild(img);
+        };
+        fr.readAsDataURL(file);
+      });
+    }
+  };
+
+  // Build the payload for the link. Include uploadedPhotoUrls when present.
+  function buildPayload() {
+    const payload = {
+      from: fromName.value || '',
+      to: toName.value || '',
+      date: specialDate.value || '',
+      template: templateSelect.value || '',
+      text: loveText.value || '',
+      gifts: Array.from(selectedGifts || []),
+      youtube: youtubeLinkInput ? youtubeLinkInput.value || '' : '',
+      photos: uploadedPhotoUrls.slice(0, 3)
+    };
+    return payload;
+  }
+
+  function createFullUrl(payload) {
+    const encoded = toBase64Url(payload);
+    return location.origin + location.pathname + '#data=' + encoded;
+  }
+
+  async function shortenUrl(fullUrl) {
+    const api = 'https://is.gd/create.php?format=json&url=' + encodeURIComponent(fullUrl);
+    try {
+      const res = await fetch(api, { method: 'GET' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data && data.shorturl) return data.shorturl;
+      return null;
+    } catch (err) {
+      console.warn('Shortening failed:', err);
+      return null;
+    }
+  }
+
+  window.generateLink = async function () {
+    // If user added images via file input but Cloudinary isn't configured, warn
+    if (photoInput && photoInput.files && photoInput.files.length > 0 && !CLOUDINARY) {
+      if (!confirm('You added photos but Cloudinary is not configured. Photos will not be uploaded and recipients will not see them. Continue?')) return;
+    }
+
+    const payload = buildPayload();
+    const fullUrl = createFullUrl(payload);
+
+    if (fullUrl.length > 1800) {
+      if (!confirm('The generated link is quite large and may not shorten reliably. Continue anyway?')) return;
+    }
+
+    shareLinkInput.value = 'Generating...';
+    const short = await shortenUrl(fullUrl);
+    if (short) {
+      shareLinkInput.value = short;
+    } else {
+      shareLinkInput.value = fullUrl;
+      alert('Could not shorten the link (shortener unavailable). The full link is provided instead.');
+    }
+  };
+
+  window.copyLink = async function () {
+    const val = shareLinkInput.value;
+    if (!val) return alert('No link to copy — generate one first.');
+    try {
+      await navigator.clipboard.writeText(val);
+      alert('Link copied to clipboard!');
+    } catch (err) {
+      const tmp = document.createElement('textarea');
+      tmp.value = val;
+      document.body.appendChild(tmp);
+      tmp.select();
+      document.execCommand('copy');
+      document.body.removeChild(tmp);
+      alert('Link copied to clipboard!');
+    }
+  };
+
+  window.shareWhatsApp = function () {
+    const link = shareLinkInput.value;
+    if (!link) return alert('No link to share — generate one first.');
+    const text = encodeURIComponent('I made this for you: ' + link);
+    const wa = 'https://wa.me/?text=' + text;
+    window.open(wa, '_blank');
+  };
+
+  function renderViewer(payload) {
+    if (creatorSection) creatorSection.classList.add('hidden');
+    if (viewerHeader) viewerHeader.classList.remove('hidden');
+    if (viewerSection) viewerSection.classList.remove('hidden');
+
+    dearEl.textContent = payload.to ? 'Dear ' + payload.to : 'Hello';
+    progressive.innerText = payload.text || '';
+
+    viewerGifts.innerHTML = '';
+    if (payload.gifts && payload.gifts.length) {
+      payload.gifts.forEach(g => {
+        const d = document.createElement('div');
+        d.className = 'gift';
+        d.textContent = g;
+        viewerGifts.appendChild(d);
+      });
+      giftsCard.style.display = '';
+    } else {
+      giftsCard.style.display = 'none';
+    }
+
+    youtubeFrame.innerHTML = '';
+    if (payload.youtube && payload.youtube.includes('youtube')) {
+      const m = payload.youtube.match(/[?&]v=([^&]+)/);
+      const id = m ? m[1] : null;
+      if (id) {
+        const iframe = document.createElement('iframe');
+        iframe.width = '100%';
+        iframe.height = '250';
+        iframe.src = 'https://www.youtube.com/embed/' + id + '?rel=0';
+        iframe.frameBorder = '0';
+        iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+        iframe.allowFullscreen = true;
+        youtubeFrame.appendChild(iframe);
+      }
+    }
+
+    viewerPhotos.innerHTML = '';
+    if (payload.photos && payload.photos.length) {
+      payload.photos.forEach(url => {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = 'memory';
+        viewerPhotos.appendChild(img);
+      });
+    }
+  }
+
+  function tryLoadFromFragment() {
+    const hash = location.hash || '';
+    if (!hash.startsWith('#data=')) return false;
+    const encoded = hash.slice(6);
+    try {
+      const payload = fromBase64Url(encoded);
+      renderViewer(payload);
+      const fullUrl = createFullUrl(payload);
+      shareLinkInput.value = fullUrl;
+      shortenUrl(fullUrl).then(short => { if (short) shareLinkInput.value = short; });
+      return true;
+    } catch (err) {
+      console.warn('Failed to parse payload from URL fragment.', err);
+      return false;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const loaded = tryLoadFromFragment();
+    if (!loaded) {
+      if (creatorSection) creatorSection.classList.remove('hidden');
+      if (viewerHeader) viewerHeader.classList.add('hidden');
+      if (viewerSection) viewerSection.classList.add('hidden');
+    }
   });
 
-  if (data.photos && data.photos.length > 0) {
-    data.photos.forEach(src => {
-      const img = document.createElement('img');
-      img.src = src;
-      document.getElementById('viewerPhotos').appendChild(img);
-    });
-  }
+  window.previewSong = function () {
+    const url = youtubeLinkInput ? youtubeLinkInput.value : '';
+    if (!url) return alert('Paste a YouTube link first.');
+    const songPreview = document.getElementById('songPreview');
+    if (!songPreview) return alert('No preview area found.');
+    const m = url.match(/[?&]v=([^&]+)/);
+    const id = m ? m[1] : null;
+    if (!id) return alert('Invalid YouTube URL.');
+    songPreview.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.width = '100%';
+    iframe.height = '200';
+    iframe.src = 'https://www.youtube.com/embed/' + id + '?rel=0';
+    iframe.frameBorder = '0';
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+    iframe.allowFullscreen = true;
+    songPreview.appendChild(iframe);
+  };
 
-  if (data.gifts.length > 0) {
-    document.getElementById('giftsCard').style.display = 'block';
-    data.gifts.forEach(g => {
-      const div = document.createElement('div');
-      div.className = 'gift selected';
-      div.textContent = g;
-      document.getElementById('viewerGifts').appendChild(div);
-    });
-  }
+  window.openEnvelope = function () {
+    const hash = location.hash || '';
+    if (hash.startsWith('#data=')) return;
+    const payload = buildPayload();
+    renderViewer(payload);
+    const fullUrl = createFullUrl(payload);
+    history.replaceState(null, '', fullUrl);
+    shareLinkInput.value = fullUrl;
+    shortenUrl(fullUrl).then(short => { if (short) shareLinkInput.value = short; });
+  };
 
-  if (data.yt) {
-    const iframe = `<iframe src="https://www.youtube.com/embed/${data.yt}?autoplay=1&loop=1&playlist=${data.yt}" allow="autoplay" allowfullscreen></iframe>`;
-    document.getElementById('youtubeFrame').innerHTML = iframe;
-  }
-
-  if (data.date) {
-    const target = new Date(data.date);
-    setInterval(() => {
-      const diff = target - new Date();
-      const days = Math.floor(diff / 86400000);
-      document.getElementById('countdown').textContent = diff > 0 
-        ? `Special day in: ${days} day${days === 1 ? '' : 's'} ❤️`
-        : 'Today is your special day! 🎉';
-    }, 1000);
-  }
-}
-
-function shareWhatsApp() {
-  const url = location.href;
-  const text = encodeURIComponent(`Someone sent you a special message 💌\nOpen it here: ${url}`);
-  window.open(`https://wa.me/?text=${text}`, '_blank');
-}
-
-function copyLink() {
-  const link = document.getElementById('shareLink').value || location.href;
-  navigator.clipboard.writeText(link);
-  alert('Link copied! Now send it to your loved one ❤️');
-}
-
-function startFloatingHearts() {
-  const container = document.getElementById('hearts-container');
-  setInterval(() => {
-    const h = document.createElement('div');
-    h.textContent = '❤️';
-    h.style.position = 'fixed';
-    h.style.left = Math.random() * 100 + 'vw';
-    h.style.bottom = '-50px';
-    h.style.fontSize = '2rem';
-    h.style.opacity = '0.6';
-    h.style.pointerEvents = 'none';
-    h.style.animation = 'floatUp 10s linear forwards';
-    container.appendChild(h);
-    setTimeout(() => h.remove(), 10000);
-  }, 1000);
-}
-
-const style = document.createElement('style');
-style.innerHTML = `@keyframes floatUp { to { transform: translateY(-120vh); opacity:0; } }`;
-document.head.appendChild(style);
+})();
