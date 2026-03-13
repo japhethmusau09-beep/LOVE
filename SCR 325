@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cyber Crime Demonstration</title>
+
+<style>
+
+body{
+background:black;
+color:#00ff00;
+font-family:Courier New, monospace;
+margin:0;
+overflow:hidden;
+}
+
+/* hacker screen */
+
+#terminal{
+position:absolute;
+width:100%;
+height:100%;
+padding:40px;
+box-sizing:border-box;
+}
+
+#title{
+color:red;
+font-size:50px;
+text-align:center;
+margin-bottom:30px;
+animation:blink 0.8s infinite;
+}
+
+#console{
+font-size:20px;
+line-height:1.6;
+white-space:pre-line;
+}
+
+#countdown{
+position:absolute;
+bottom:40px;
+right:40px;
+font-size:40px;
+color:red;
+}
+
+/* welcome screen */
+
+#welcome{
+display:none;
+position:absolute;
+width:100%;
+height:100%;
+background:#0b1a2b;
+color:white;
+justify-content:center;
+align-items:center;
+flex-direction:column;
+text-align:center;
+}
+
+#welcome h1{
+font-size:48px;
+}
+
+#welcome p{
+font-size:20px;
+}
+
+@keyframes blink{
+0%{opacity:1}
+50%{opacity:0}
+100%{opacity:1}
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="terminal">
+
+<div id="title">SYSTEM BREACH DETECTED</div>
+
+<div id="console"></div>
+
+<div id="countdown">10</div>
+
+</div>
+
+<div id="welcome">
+
+<h1>Welcome to Cyber Crime Class</h1>
+<p>Demonstration of Cybercrime Psychological Manipulation</p>
+
+</div>
+
+<script>
+
+let messages = [
+"Connecting to remote exploit server...",
+"Bypassing firewall...",
+"Injecting malicious payload...",
+"Scanning local network...",
+"Target IP detected: 192.168.1.21",
+"Extracting saved browser passwords...",
+"Uploading files to external server...",
+"Accessing webcam device...",
+"System control obtained.",
+"User data extraction in progress..."
+];
+
+let consoleDiv = document.getElementById("console");
+
+let index = 0;
+
+function typeLine(){
+
+if(index < messages.length){
+
+consoleDiv.innerHTML += messages[index] + "<br>";
+
+index++;
+
+setTimeout(typeLine,700);
+
+}
+
+}
+
+typeLine();
+
+/* countdown timer */
+
+let count = 10;
+
+let timer = setInterval(function(){
+
+count--;
+
+document.getElementById("countdown").innerHTML = count;
+
+if(count <= 0){
+
+clearInterval(timer);
+
+document.getElementById("terminal").style.display="none";
+
+document.getElementById("welcome").style.display="flex";
+
+}
+
+},1000);
+
+</script>
+
+</body>
+</html>
